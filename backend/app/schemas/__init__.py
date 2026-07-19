@@ -1,0 +1,1 @@
+# MannSetu AI Schemas package
