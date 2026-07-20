@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 
 # Chat
 class ChatMessage(BaseModel):
@@ -15,6 +15,21 @@ class ChatRequest(BaseModel):
     history: Optional[List[ChatMessage]] = None
     image: Optional[dict] = None  # { mime_type: str, data: str (base64) }
     pdf: Optional[dict] = None    # { filename: str, data: str (base64) }
+
+class ActivitySuggestion(BaseModel):
+    id: str
+    title: str
+    description: str
+    duration_minutes: int
+    category: str
+    emoji: str
+
+class ChatResponse(BaseModel):
+    response: str
+    emotion: str = "Neutral"
+    crisis_detected: bool = False
+    crisis_resources: str = ""
+    activities: List[ActivitySuggestion] = []
 
 
 # Emotion

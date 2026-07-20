@@ -28,6 +28,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { CrisisBanner } from "@/components/shared/CrisisBanner"
+import { ActivitySuggestions, type Activity } from "@/components/shared/ActivityCard"
 import { useChatStore } from "@/store/chat"
 import { useAuthStore } from "@/store/auth"
 import { toast } from "@/hooks/use-toast"
@@ -35,14 +37,36 @@ import { formatRelativeTime, getInitials } from "@/lib/utils"
 import { cn } from "@/lib/utils"
 
 const suggestedPrompts = [
-  "I'm feeling anxious about work today",
+  "I'm feeling anxious about my exams",
   "Help me with a quick breathing exercise",
-  "I need to vent about something",
-  "What are some mindfulness tips?",
+  "I need to talk about something heavy",
+  "I feel like no one understands me",
   "I'm having trouble sleeping",
-  "Help me set wellness goals",
+  "Help me deal with family pressure",
 ]
 
+// Emotion → badge colour mapping
+const EMOTION_BADGE_MAP: Record<string, string> = {
+  Joy: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  Love: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+  Optimism: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  Sadness: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  Anxiety: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  Stress: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  Fear: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  Confusion: "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300",
+  Disappointment: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  Neutral: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+}
+
+// Emotion → emoji
+const EMOTION_EMOJI: Record<string, string> = {
+  Joy: "😊", Love: "💕", Optimism: "🌟", Sadness: "💙",
+  Anxiety: "😰", Stress: "😤", Fear: "😨", Confusion: "🤔",
+  Disappointment: "😞", Neutral: "🤍",
+}
+
+// Offline mock responses
 const AI_RESPONSES = [
   "I hear you, and I want you to know that's completely valid. Let's explore this together. Can you tell me more about what specifically is making you feel this way? 💙",
   "Thank you for sharing that with me. It takes courage to open up. What has been the most challenging part for you recently?",
@@ -51,11 +75,19 @@ const AI_RESPONSES = [
   "Your feelings are completely valid. Remember, it's okay to not be okay sometimes. Would you like to explore some coping strategies that might help?",
 ]
 
+interface MessageMeta {
+  emotion?: string
+  crisis_detected?: boolean
+  activities?: Activity[]
+}
+
 export default function ChatPage() {
   const { conversations, activeConversationId, setActiveConversation, addMessage, createConversation, setTyping, isTyping, deleteConversation } = useChatStore()
   const { user } = useAuthStore()
   const [input, setInput] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
+  const [crisisVisible, setCrisisVisible] = useState(false)
+  const [messageMeta, setMessageMeta] = useState<Record<string, MessageMeta>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -83,20 +115,14 @@ export default function ChatPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     if (!file.type.startsWith("image/")) {
       toast({ title: "Invalid file type", description: "Please select an image file.", variant: "destructive" })
       return
     }
-
     const reader = new FileReader()
     reader.onload = () => {
       const base64 = (reader.result as string).split(",")[1]
-      setUploadedImage({
-        mime_type: file.type,
-        data: base64,
-        filename: file.name
-      })
+      setUploadedImage({ mime_type: file.type, data: base64, filename: file.name })
       toast({ title: "Image attached 🖼️", description: file.name })
     }
     reader.readAsDataURL(file)
@@ -105,19 +131,14 @@ export default function ChatPage() {
   const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     if (file.type !== "application/pdf") {
       toast({ title: "Invalid file type", description: "Please select a PDF file.", variant: "destructive" })
       return
     }
-
     const reader = new FileReader()
     reader.onload = () => {
       const base64 = (reader.result as string).split(",")[1]
-      setUploadedPdf({
-        filename: file.name,
-        data: base64
-      })
+      setUploadedPdf({ filename: file.name, data: base64 })
       toast({ title: "PDF attached 📄", description: file.name })
     }
     reader.readAsDataURL(file)
@@ -129,41 +150,22 @@ export default function ChatPage() {
       setIsListening(false)
       return
     }
-
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (!SpeechRecognition) {
-      toast({
-        title: "Not supported",
-        description: "Your browser does not support Speech Recognition.",
-        variant: "destructive",
-      })
+      toast({ title: "Not supported", description: "Your browser does not support Speech Recognition.", variant: "destructive" })
       return
     }
-
     const recognition = new SpeechRecognition()
     recognition.continuous = false
     recognition.interimResults = false
-    recognition.lang = "en-US"
-
-    recognition.onstart = () => {
-      setIsListening(true)
-      toast({ title: "Listening... 🎙️", description: "Start speaking now." })
-    }
-
-    recognition.onerror = (event: any) => {
-      console.warn("Speech recognition error:", event.error)
-      setIsListening(false)
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-    }
-
+    recognition.lang = "en-IN"
+    recognition.onstart = () => { setIsListening(true); toast({ title: "Listening... 🎙️", description: "Start speaking now." }) }
+    recognition.onerror = () => setIsListening(false)
+    recognition.onend = () => setIsListening(false)
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript
       setInput((prev) => (prev ? prev + " " + transcript : transcript))
     }
-
     recognitionRef.current = recognition
     recognition.start()
   }
@@ -173,32 +175,18 @@ export default function ChatPage() {
 
     const convId = activeConversationId ?? createConversation()
     const messageText = input.trim()
-    
-    // Add custom context label to the content if attachments are present
+
     let contentLabel = messageText
-    if (uploadedImage && !messageText) {
-      contentLabel = "[Sent an image]"
-    } else if (uploadedPdf && !messageText) {
-      contentLabel = `[Sent PDF: ${uploadedPdf.filename}]`
-    }
-    
+    if (uploadedImage && !messageText) contentLabel = "[Sent an image]"
+    else if (uploadedPdf && !messageText) contentLabel = `[Sent PDF: ${uploadedPdf.filename}]`
+
     setInput("")
 
-    // 1. Add user message
-    addMessage(convId, {
-      role: "user",
-      content: contentLabel,
-      timestamp: new Date(),
-    })
-
+    addMessage(convId, { role: "user", content: contentLabel, timestamp: new Date() })
     setTyping(true)
 
-    // Retrieve active conversation messages to send as context
     const currentConv = useChatStore.getState().conversations.find((c) => c.id === convId)
-    const chatHistory = currentConv?.messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })) || []
+    const chatHistory = currentConv?.messages.map((m) => ({ role: m.role, content: m.content })) || []
 
     const imgPayload = uploadedImage
     const pdfPayload = uploadedPdf
@@ -212,22 +200,37 @@ export default function ChatPage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${localStorage.getItem("mannsetu-token") || ""}`
         },
-        body: JSON.stringify({
-          messages: chatHistory,
-          image: imgPayload,
-          pdf: pdfPayload
-        }),
+        body: JSON.stringify({ messages: chatHistory, image: imgPayload, pdf: pdfPayload }),
       })
 
       if (res.ok) {
         const data = await res.json()
         setTyping(false)
+
+        // Surface crisis banner if detected
+        if (data.crisis_detected) {
+          setCrisisVisible(true)
+        }
+
+        const aiMsgId = Date.now().toString()
         addMessage(convId, {
           role: "assistant",
           content: data.response,
           timestamp: new Date(),
-          emotion: "🔮 AI Coach",
+          emotion: data.emotion,
         })
+
+        // Store per-message metadata (emotion, activities)
+        if (data.emotion || data.activities?.length) {
+          setMessageMeta((prev) => ({
+            ...prev,
+            [aiMsgId]: {
+              emotion: data.emotion,
+              crisis_detected: data.crisis_detected,
+              activities: data.activities || [],
+            },
+          }))
+        }
         return
       }
       throw new Error("API failed")
@@ -235,12 +238,7 @@ export default function ChatPage() {
       console.warn("FastAPI chat offline, using mock responses.", err)
       setTyping(false)
       const response = AI_RESPONSES[Math.floor(Math.random() * AI_RESPONSES.length)]
-      addMessage(convId, {
-        role: "assistant",
-        content: response,
-        timestamp: new Date(),
-        emotion: "🤗 Empathetic",
-      })
+      addMessage(convId, { role: "assistant", content: response, timestamp: new Date(), emotion: "Neutral" })
     }
   }
 
@@ -255,6 +253,19 @@ export default function ChatPage() {
     navigator.clipboard.writeText(text)
     toast({ title: "Copied to clipboard" })
   }
+
+  // Get the latest AI message metadata for activity suggestions
+  const latestAiMeta = (() => {
+    if (!activeConversation) return null
+    const msgs = activeConversation.messages
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant") {
+        const meta = messageMeta[Object.keys(messageMeta).pop() || ""]
+        return meta || null
+      }
+    }
+    return null
+  })()
 
   return (
     <div className="flex h-[calc(100vh-64px)] -m-4 lg:-m-6 overflow-hidden">
@@ -285,9 +296,7 @@ export default function ChatPage() {
                 onClick={() => setActiveConversation(conv.id)}
                 className={cn(
                   "group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors",
-                  conv.id === activeConversationId
-                    ? "bg-primary/10 text-primary"
-                    : "hover:bg-muted"
+                  conv.id === activeConversationId ? "bg-primary/10 text-primary" : "hover:bg-muted"
                 )}
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-brand flex items-center justify-center shrink-0">
@@ -295,9 +304,7 @@ export default function ChatPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{conv.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatRelativeTime(conv.updatedAt)}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{formatRelativeTime(conv.updatedAt)}</p>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -337,10 +344,10 @@ export default function ChatPage() {
             <Sparkles className="w-4 h-4 text-white" />
           </div>
           <div>
-            <p className="font-semibold text-sm">MannSetu AI</p>
+            <p className="font-semibold text-sm">MannSetu AI Coach</p>
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
-              <span className="text-xs text-muted-foreground">Online · Confidential</span>
+              <span className="text-xs text-muted-foreground">Online · Confidential · Not a therapist</span>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-1">
@@ -359,8 +366,11 @@ export default function ChatPage() {
                 <Sparkles className="w-8 h-8 text-white" />
               </div>
               <h3 className="font-semibold text-lg mb-2">How are you feeling today?</h3>
-              <p className="text-muted-foreground text-sm max-w-md mb-6">
-                I&apos;m your confidential AI companion. Share anything — I&apos;m here to listen and support you.
+              <p className="text-muted-foreground text-sm max-w-md mb-2">
+                I&apos;m your confidential AI companion — warm, non-judgmental, and always here. Share anything on your mind.
+              </p>
+              <p className="text-xs text-muted-foreground/70 mb-6">
+                ⚠️ I&apos;m an AI, not a therapist. For professional support, please see a counsellor.
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-lg">
                 {suggestedPrompts.map((prompt) => (
@@ -376,59 +386,79 @@ export default function ChatPage() {
             </div>
           ) : (
             <div className="space-y-4 max-w-3xl mx-auto">
-              {activeConversation.messages.map((message) => (
-                <motion.div
-                  key={message.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={cn(
-                    "flex gap-3",
-                    message.role === "user" ? "flex-row-reverse" : "flex-row"
-                  )}
-                >
-                  {message.role === "assistant" ? (
-                    <div className="w-8 h-8 rounded-xl bg-gradient-brand flex items-center justify-center shrink-0 mt-1">
-                      <Sparkles className="w-3.5 h-3.5 text-white" />
-                    </div>
-                  ) : (
-                    <Avatar className="w-8 h-8 shrink-0 mt-1">
-                      <AvatarImage src={user?.avatar} />
-                      <AvatarFallback className="text-xs">{getInitials(user?.name ?? "U")}</AvatarFallback>
-                    </Avatar>
-                  )}
-                  <div className={cn("flex flex-col gap-1 max-w-[80%]", message.role === "user" && "items-end")}>
-                    {message.emotion && message.role === "assistant" && (
-                      <Badge variant="cyan" className="text-xs self-start">{message.emotion}</Badge>
-                    )}
-                    <div
-                      className={cn(
-                        "rounded-2xl px-4 py-3 text-sm leading-relaxed",
-                        message.role === "user"
-                          ? "bg-primary text-primary-foreground rounded-tr-sm"
-                          : "bg-muted rounded-tl-sm"
-                      )}
-                    >
-                      {message.content}
-                    </div>
-                    {message.role === "assistant" && (
-                      <div className="flex items-center gap-1 mt-1">
-                        <Button variant="ghost" size="icon-sm" className="w-6 h-6 rounded-lg" onClick={() => handleCopy(message.content)}>
-                          <Copy className="w-3 h-3" />
-                        </Button>
-                        <Button variant="ghost" size="icon-sm" className="w-6 h-6 rounded-lg">
-                          <ThumbsUp className="w-3 h-3" />
-                        </Button>
-                        <Button variant="ghost" size="icon-sm" className="w-6 h-6 rounded-lg">
-                          <ThumbsDown className="w-3 h-3" />
-                        </Button>
-                        <span className="text-xs text-muted-foreground ml-1">
-                          {formatRelativeTime(message.timestamp)}
-                        </span>
+              {activeConversation.messages.map((message, idx) => {
+                const isLast = idx === activeConversation.messages.length - 1
+                const meta = isLast && message.role === "assistant" ? latestAiMeta : null
+                const emotionLabel = (message as any).emotion as string | undefined
+                const emotionBadgeClass = emotionLabel ? EMOTION_BADGE_MAP[emotionLabel] || EMOTION_BADGE_MAP.Neutral : null
+                const emotionEmoji = emotionLabel ? EMOTION_EMOJI[emotionLabel] || "🤍" : null
+
+                return (
+                  <motion.div
+                    key={message.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={cn("flex gap-3", message.role === "user" ? "flex-row-reverse" : "flex-row")}
+                  >
+                    {message.role === "assistant" ? (
+                      <div className="w-8 h-8 rounded-xl bg-gradient-brand flex items-center justify-center shrink-0 mt-1">
+                        <Sparkles className="w-3.5 h-3.5 text-white" />
                       </div>
+                    ) : (
+                      <Avatar className="w-8 h-8 shrink-0 mt-1">
+                        <AvatarImage src={user?.avatar} />
+                        <AvatarFallback className="text-xs">{getInitials(user?.name ?? "U")}</AvatarFallback>
+                      </Avatar>
                     )}
-                  </div>
-                </motion.div>
-              ))}
+
+                    <div className={cn("flex flex-col gap-1 max-w-[80%]", message.role === "user" && "items-end")}>
+                      {/* Emotion badge on AI messages */}
+                      {emotionBadgeClass && message.role === "assistant" && (
+                        <span className={`self-start text-[11px] font-medium px-2 py-0.5 rounded-full ${emotionBadgeClass}`}>
+                          {emotionEmoji} {emotionLabel}
+                        </span>
+                      )}
+
+                      <div
+                        className={cn(
+                          "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                          message.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-tr-sm"
+                            : "bg-muted rounded-tl-sm"
+                        )}
+                      >
+                        {message.content}
+                      </div>
+
+                      {/* Activity suggestions on the last AI message */}
+                      {meta?.activities && meta.activities.length > 0 && (
+                        <ActivitySuggestions
+                          activities={meta.activities}
+                          emotion={emotionLabel}
+                          onStart={(act) => toast({ title: `Starting: ${act.title}`, description: act.description })}
+                        />
+                      )}
+
+                      {message.role === "assistant" && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <Button variant="ghost" size="icon-sm" className="w-6 h-6 rounded-lg" onClick={() => handleCopy(message.content)}>
+                            <Copy className="w-3 h-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" className="w-6 h-6 rounded-lg">
+                            <ThumbsUp className="w-3 h-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" className="w-6 h-6 rounded-lg">
+                            <ThumbsDown className="w-3 h-3" />
+                          </Button>
+                          <span className="text-xs text-muted-foreground ml-1">
+                            {formatRelativeTime(message.timestamp)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )
+              })}
 
               {/* Typing indicator */}
               <AnimatePresence>
@@ -460,20 +490,11 @@ export default function ChatPage() {
         </ScrollArea>
 
         {/* Hidden inputs for uploads */}
-        <input
-          type="file"
-          ref={imageInputRef}
-          accept="image/*"
-          className="hidden"
-          onChange={handleImageChange}
-        />
-        <input
-          type="file"
-          ref={pdfInputRef}
-          accept="application/pdf"
-          className="hidden"
-          onChange={handlePdfChange}
-        />
+        <input type="file" ref={imageInputRef} accept="image/*" className="hidden" onChange={handleImageChange} />
+        <input type="file" ref={pdfInputRef} accept="application/pdf" className="hidden" onChange={handlePdfChange} />
+
+        {/* Crisis Banner — above input */}
+        <CrisisBanner show={crisisVisible} onDismiss={() => setCrisisVisible(false)} />
 
         {/* Input */}
         <div className="p-4 border-t bg-card">
@@ -483,16 +504,8 @@ export default function ChatPage() {
               <div className="flex gap-2 mb-2 p-2 bg-muted/50 rounded-xl max-w-fit animate-in fade-in slide-in-from-bottom-2">
                 {uploadedImage && (
                   <div className="relative group border rounded-lg overflow-hidden bg-background">
-                    <img
-                      src={`data:${uploadedImage.mime_type};base64,${uploadedImage.data}`}
-                      alt="Upload preview"
-                      className="h-14 w-14 object-cover"
-                    />
-                    <button
-                      onClick={() => setUploadedImage(null)}
-                      className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black"
-                      aria-label="Remove image"
-                    >
+                    <img src={`data:${uploadedImage.mime_type};base64,${uploadedImage.data}`} alt="Upload preview" className="h-14 w-14 object-cover" />
+                    <button onClick={() => setUploadedImage(null)} className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black" aria-label="Remove image">
                       <Plus className="w-3.5 h-3.5 rotate-45 text-white" />
                     </button>
                   </div>
@@ -501,11 +514,7 @@ export default function ChatPage() {
                   <div className="relative flex items-center gap-2 p-2 pr-8 border rounded-lg bg-background text-xs max-w-xs">
                     <Paperclip className="w-4 h-4 text-primary shrink-0" />
                     <span className="truncate max-w-[120px] font-medium">{uploadedPdf.filename}</span>
-                    <button
-                      onClick={() => setUploadedPdf(null)}
-                      className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black"
-                      aria-label="Remove PDF"
-                    >
+                    <button onClick={() => setUploadedPdf(null)} className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black" aria-label="Remove PDF">
                       <Plus className="w-3 h-3 rotate-45 text-white" />
                     </button>
                   </div>
@@ -515,22 +524,10 @@ export default function ChatPage() {
 
             <div className="flex items-end gap-2 p-2 rounded-2xl border bg-background focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all">
               <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className={cn("text-muted-foreground", uploadedPdf && "text-primary")}
-                  aria-label="Attach PDF"
-                  onClick={triggerPdfUpload}
-                >
+                <Button variant="ghost" size="icon-sm" className={cn("text-muted-foreground", uploadedPdf && "text-primary")} aria-label="Attach PDF" onClick={triggerPdfUpload}>
                   <Paperclip className="w-4 h-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className={cn("text-muted-foreground", uploadedImage && "text-primary")}
-                  aria-label="Attach image"
-                  onClick={triggerImageUpload}
-                >
+                <Button variant="ghost" size="icon-sm" className={cn("text-muted-foreground", uploadedImage && "text-primary")} aria-label="Attach image" onClick={triggerImageUpload}>
                   <ImageIcon className="w-4 h-4" />
                 </Button>
               </div>
@@ -543,13 +540,7 @@ export default function ChatPage() {
                 className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 resize-none flex-1"
               />
               <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className={cn("text-muted-foreground", isListening && "text-destructive animate-pulse")}
-                  aria-label="Voice input"
-                  onClick={toggleListening}
-                >
+                <Button variant="ghost" size="icon-sm" className={cn("text-muted-foreground", isListening && "text-destructive animate-pulse")} aria-label="Voice input" onClick={toggleListening}>
                   <Mic className="w-4 h-4" />
                 </Button>
                 <Button
@@ -565,7 +556,7 @@ export default function ChatPage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground text-center mt-2">
-              All conversations are end-to-end encrypted and completely confidential
+              MannSetu AI is a support tool, not a replacement for professional mental health care.
             </p>
           </div>
         </div>

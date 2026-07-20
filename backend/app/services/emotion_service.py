@@ -1,5 +1,5 @@
 import logging
-from typing import dict, Optional
+from typing import Dict, Optional
 from app.config.settings import settings
 
 logger = logging.getLogger("mannsetu.emotion")

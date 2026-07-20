@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import { Gamepad, Star, Clock, Brain, Flame, Award, Zap, Compass } from "lucide-react"
-import { DashboardLayout } from "@/components/layout/DashboardLayout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -63,7 +62,7 @@ export default function GamesDashboardPage() {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -172,6 +171,6 @@ export default function GamesDashboardPage() {
           </motion.div>
         )}
       </div>
-    </DashboardLayout>
+    </>
   )
 }
